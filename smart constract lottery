@@ -1,0 +1,127 @@
+pragma solidity ^0.4.19;
+//pragma experimental ABIEncoderV2;
+
+contract LotteryOrder{
+  address owner;
+  uint private luckyNum;  //开奖号码
+  uint private prizePool;  //奖池
+
+  enum State { Created, Settled}   // 订单状态（下单，开奖）
+  bool settleState = false;  // 结算标志位
+
+  // 单笔订单信息
+  struct singleorder {
+    address bettor;    // 用户地址
+    uint orderid;  // 订单id
+    uint betNum;  //选的开奖号码
+    uint State; //开奖状态，默认创建
+    uint prize;  // 获奖金额
+  }
+  singleorder[] public orderlist;  // 订单列表
+  mapping (address => mapping(uint=>singleorder)) public orders;   // 订单映射（address=>orderid=>singleorder）表
+
+  function LotteryOrder(){
+      owner = msg.sender;
+  }
+
+  modifier random() {
+    if (luckyNum >= 0 )
+        revert();
+    _;
+  }
+
+  modifier onlyOwner() {
+    if (msg.sender != owner)
+        revert();
+    _;
+  }
+
+  modifier hasSettled() {
+    if (!settleState)
+        revert();
+    _;
+  }
+
+  event setorder(address, uint, uint);
+
+  // 保存订单, 由合同发起者保存(单笔订单）
+  function saveBetOrder(uint orderid, uint betNum)
+      public
+      onlyOwner
+      payable
+    {
+      setorder(msg.sender, orderid, betNum);
+      require(msg.value == 2*10**18);
+      if (orders[msg.sender][orderid].orderid != 0)
+          revert();
+      singleorder memory order;
+
+      order.bettor = msg.sender;
+      order.orderid = orderid;
+      order.betNum = betNum;
+      //order.prize = 0;
+      orders[msg.sender][orderid] = order;
+
+      prizePool += msg.value * 4 / 5;
+      orderlist.push(order);
+    }
+
+  //根据订单号获取订单
+  function getBetOrder(uint orderid) public constant returns(uint,uint,uint, uint){
+      singleorder memory order = orders[msg.sender][orderid];
+      return (order.orderid, order.betNum, order.State, order.prize);
+  }
+
+  // 获取合约地址余额
+  function getBalance() public constant returns(uint){
+      return this.balance;
+  }
+
+  // 获取奖池金额
+  function getPrizePool() public constant returns(uint){
+      return prizePool;
+  }
+
+  function getblock() constant returns(bytes32, uint){
+      return (block.blockhash(block.number-1), uint(block.blockhash(block.number-1)[31]));
+  }
+
+  // 随机数生成（合约发起者调用）
+  function genrateRandom() public onlyOwner{
+      uint timestamp = block.timestamp;
+      luckyNum = uint(block.blockhash(block.number-1)[31]) % 2 + 1;
+  }
+
+  // 结算派奖
+  function settlePrize() public onlyOwner{
+      require(!settleState);
+      settleState = true;
+      uint prize_orders;
+      for(uint i; i< orderlist.length; i++){
+          if (orderlist[i].betNum == luckyNum)
+              prize_orders += 1;
+      }
+
+      for(uint j; j< orderlist.length; j++){
+          uint orderid = orderlist[j].orderid;
+          uint betNum = orderlist[j].betNum;
+          address bettor = orderlist[j].bettor;
+          orders[bettor][orderid].State = uint(State.Settled);
+          if (betNum == luckyNum){
+              uint prize = uint(prizePool) / uint(prize_orders);
+              orders[bettor][orderid].prize = prize;
+              bettor.transfer(prize);
+          }
+      }
+  }
+
+
+  // 获取开奖号码
+  function getPrizeNum() public constant returns(uint){
+      //require(settleState);
+      return luckyNum;
+  }
+
+  function(){}
+
+}
